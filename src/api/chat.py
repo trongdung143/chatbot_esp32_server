@@ -10,8 +10,6 @@ router = APIRouter()
 @router.websocket("/ws_audio")
 async def ws_audio(websocket: WebSocket):
     await websocket.accept()
-    print("✅ ESP32 connected")
-
     client_id = "unknown"
     pcm_buffer = bytearray()
 
@@ -20,7 +18,7 @@ async def ws_audio(websocket: WebSocket):
             data = await websocket.receive()
 
             if data["type"] == "websocket.disconnect":
-                print(f"❌ Disconnected: {client_id}")
+                print(f"Disconnected: {client_id}")
                 break
 
             if "text" in data:
@@ -29,11 +27,11 @@ async def ws_audio(websocket: WebSocket):
                 if msg.startswith("start_chat|"):
                     client_id = msg.split("|")[1]
                     pcm_buffer.clear()
-                    print(f"🎙 Start from {client_id}")
+                    print(f"Start from {client_id}")
                     continue
 
                 elif msg == "end_chat":
-                    print(f"🛑 End stream from {client_id}")
+                    print(f"End stream from {client_id}")
 
                     wav_path = await save_wav(client_id, pcm_buffer)
                     pcm_buffer.clear()
@@ -41,7 +39,7 @@ async def ws_audio(websocket: WebSocket):
                     if wav_path:
 
                         text = await stt(wav_path)
-                        print(f"🗣 STT result: {text}")
+                        print(f"STT result: {text}")
 
                         input_state = {
                             "client_id": client_id,
@@ -56,19 +54,11 @@ async def ws_audio(websocket: WebSocket):
 
                         response = await graph.ainvoke(input=input_state, config=config)
 
-                        answer = response.get(
-                            "answer", "Xin lỗi tôi không hiểu câu hỏi của bạn"
-                        )
+                        answer = response.get("answer")
 
-                        print(f"🤖 Answer: {answer}")
+                        print(f"Answer: {answer}")
 
-                        try:
-                            os.remove(wav_path)
-                            print(f"Deleted temporary file: {wav_path}")
-                        except Exception as e:
-                            print(f"Failed to delete {wav_path}: {e}")
-
-                        await tts_stream_pcm(websocket, answer, 160000, 1024, False)
+                        await tts_stream_pcm(websocket, answer)
 
                     continue
 
@@ -77,7 +67,7 @@ async def ws_audio(websocket: WebSocket):
                 pcm_buffer.extend(chunk)
 
     except Exception as e:
-        print(f"⚠️ Error: {e}")
+        print(f"Error: {e}")
 
     finally:
-        print(f"🔚 Closed connection for {client_id}")
+        print(f"Closed connection for {client_id}")
