@@ -21,7 +21,7 @@ async def stt(wav_path) -> str:
     return text
 
 
-async def send_pcm_from_buf(mp3_buf, websocket, sample_rate=16000, chunk_samples=1024):
+async def send_pcm_from_buf(mp3_buf, websocket, sample_rate=16000, chunk_samples=2048):
     mp3_buf.seek(0)
     audio = AudioSegment.from_file(mp3_buf, format="mp3")
     pcm = audio.set_frame_rate(sample_rate).set_channels(1).set_sample_width(2)
