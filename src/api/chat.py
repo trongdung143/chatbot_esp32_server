@@ -1,10 +1,15 @@
 from fastapi import APIRouter, WebSocket
-from src.api.utils import stt, tts_stream_pcm, save_wav
-import os
+from src.api.utils import stream_and_speak, stt_from_pcm
+import asyncio
 from langchain_core.messages import HumanMessage
 from src.agents.workflow import graph
 
 router = APIRouter()
+
+
+@router.get("/")
+async def home():
+    return {"message": "hello"}
 
 
 @router.websocket("/ws_audio")
@@ -31,34 +36,23 @@ async def ws_audio(websocket: WebSocket):
                     continue
 
                 elif msg == "end_chat":
-                    print(f"End stream from {client_id}")
+                    print(f"End from {client_id}")
 
-                    wav_path = await save_wav(client_id, pcm_buffer)
+                    text = await stt_from_pcm(pcm_buffer)
                     pcm_buffer.clear()
 
-                    if wav_path:
+                    input_state = {
+                        "client_id": client_id,
+                        "messages": HumanMessage(content=text),
+                    }
 
-                        text = await stt(wav_path)
-                        print(f"STT result: {text}")
-
-                        input_state = {
-                            "client_id": client_id,
-                            "messages": HumanMessage(content=text),
+                    config = {
+                        "configurable": {
+                            "thread_id": client_id,
                         }
+                    }
 
-                        config = {
-                            "configurable": {
-                                "thread_id": client_id,
-                            }
-                        }
-
-                        response = await graph.ainvoke(input=input_state, config=config)
-
-                        answer = response.get("answer")
-
-                        print(f"Answer: {answer}")
-
-                        await tts_stream_pcm(websocket, answer)
+                    await stream_and_speak(graph, websocket, input_state, config)
 
                     continue
 
