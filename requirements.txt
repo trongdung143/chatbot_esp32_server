@@ -13,5 +13,5 @@ langgraph
 tavily-python
 numpy
 uvicorn[standard]
-pydub
-av
+SpeechRecognition 
+pyaudio

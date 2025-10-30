@@ -4,10 +4,11 @@ import numpy as np
 import soundfile as sf
 from faster_whisper import WhisperModel
 import io
+import re
+import numpy as np
 
 
 async def tts_stream_pcm(websocket, text, sample_rate=16000):
-
     process = await asyncio.create_subprocess_exec(
         "src/model/mp3-to-pcm/ffmpeg",
         "-hide_banner",
@@ -25,18 +26,16 @@ async def tts_stream_pcm(websocket, text, sample_rate=16000):
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
     )
-
     communicate = edge_tts.Communicate(
-        text, "vi-VN-HoaiMyNeural", volume="-40%", rate="+50%"
+        text, "vi-VN-HoaiMyNeural", volume="-50%", rate="+30%"
     )
-
-    pcm_buffer = bytearray()
 
     async def feed_mp3():
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 process.stdin.write(chunk["data"])
                 await process.stdin.drain()
+        await process.stdin.drain()
         process.stdin.close()
 
     async def read_pcm():
@@ -44,10 +43,10 @@ async def tts_stream_pcm(websocket, text, sample_rate=16000):
             pcm = await process.stdout.read(4096)
             if not pcm:
                 break
-            pcm_buffer.extend(pcm)
             await websocket.send_bytes(pcm)
 
     await asyncio.gather(feed_mp3(), read_pcm())
+    await process.wait()
 
 
 async def pcm_to_wav_bytes(pcm_buffer: bytearray, sample_rate: int = 16000) -> bytes:
@@ -96,7 +95,13 @@ async def stream_and_speak(graph, websocket, input_state, config):
                 tts_queue.task_done()
                 break
 
-            await tts_stream_pcm(websocket, text_part)
+            sentence = text_part.strip()
+            if not sentence:
+                tts_queue.task_done()
+                continue
+
+            print(f"TTS: {sentence}")
+            await tts_stream_pcm(websocket, sentence)
             tts_queue.task_done()
 
     consumer_task = asyncio.create_task(tts_consumer())
@@ -111,18 +116,22 @@ async def stream_and_speak(graph, websocket, input_state, config):
 
         if data_type == "messages":
             response, meta = chunk
-            text = str(response.content).strip() + " "
-            if not text:
+            text = response.content
+            if not text.strip():
                 continue
+
             buffer_text += text
             answer += text
 
-            print(text)
+            pattern = re.compile(r"[^.?!,]*[.?!,]")
+            matches = pattern.findall(buffer_text)
 
-            if any(p in buffer_text for p in [".", "!", "?", ","]):
-                part = buffer_text.strip()
-                buffer_text = ""
-                await tts_queue.put(part)
+            if matches:
+                for sent in matches:
+                    sentence = sent.strip()
+                    if sentence:
+                        await tts_queue.put(sentence.rstrip(".,?!").strip())
+                buffer_text = re.sub(r"^.*[.?!,]", "", buffer_text)
 
     if buffer_text.strip():
         await tts_queue.put(buffer_text.strip())
@@ -132,6 +141,6 @@ async def stream_and_speak(graph, websocket, input_state, config):
 
     consumer_task.cancel()
 
-    print(f"AI: {answer}")
+    # print(f"AI: {answer}")
     await websocket.send_text("end_stream_audio")
     print("Finished streaming TTS")
